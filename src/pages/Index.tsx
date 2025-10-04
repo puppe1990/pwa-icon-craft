@@ -6,6 +6,7 @@ import { CodeBlock } from "@/components/CodeBlock";
 import { Button } from "@/components/ui/button";
 import { Download, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import JSZip from "jszip";
 import {
   ICON_SIZES,
   generateIconFromSVG,
@@ -56,33 +57,84 @@ const Index = () => {
     }
   };
 
-  const handleDownloadAll = () => {
+  const handleDownloadAll = async () => {
     if (generatedIcons.length === 0) {
       toast.error("Please generate icons first");
       return;
     }
 
-    generatedIcons.forEach(({ size, url, type }) => {
-      const link = document.createElement("a");
-      let filename = "";
+    try {
+      const zip = new JSZip();
+      const iconsFolder = zip.folder("icons");
       
-      if (type === "pwa") {
-        const maskable = ICON_SIZES.find(
-          (s) => s.size === size && s.type === "pwa" && s.purpose === "maskable"
-        );
-        filename = maskable ? `icon-${size}-maskable.png` : `icon-${size}.png`;
-      } else if (type === "apple") {
-        filename = `apple-touch-icon-${size}.png`;
-      } else {
-        filename = `favicon-${size}.png`;
+      if (!iconsFolder) {
+        throw new Error("Failed to create icons folder in zip");
       }
-      
-      link.href = url;
-      link.download = filename;
-      link.click();
-    });
 
-    toast.success("All icons downloaded!");
+      // Add all generated icons to the zip
+      for (const { size, url, type } of generatedIcons) {
+        let filename = "";
+        
+        if (type === "pwa") {
+          const maskable = ICON_SIZES.find(
+            (s) => s.size === size && s.type === "pwa" && s.purpose === "maskable"
+          );
+          filename = maskable ? `icon-${size}-maskable.png` : `icon-${size}.png`;
+        } else if (type === "apple") {
+          filename = `apple-touch-icon-${size}.png`;
+        } else {
+          filename = `favicon-${size}.png`;
+        }
+
+        // Convert data URL to blob and add to zip
+        const response = await fetch(url);
+        const blob = await response.blob();
+        iconsFolder.file(filename, blob);
+      }
+
+      // Add manifest.json to the root of the zip
+      zip.file("manifest.json", generateManifestJSON());
+
+      // Add HTML snippet as a file
+      zip.file("html-snippet.html", generateHTMLSnippet());
+
+      // Add README with instructions
+      const readmeContent = `# PWA Icons Package
+
+This package contains all the necessary icons and files for your Progressive Web App.
+
+## Contents:
+- icons/ folder: Contains all generated icon files
+- manifest.json: PWA manifest file
+- html-snippet.html: HTML code snippet to include in your app
+
+## Installation:
+1. Extract the icons folder to your public directory
+2. Place manifest.json in your public directory
+3. Copy the HTML snippet from html-snippet.html to your HTML head section
+
+## Icon Files:
+- PWA Icons: icon-192.png, icon-512.png, icon-192-maskable.png, icon-512-maskable.png
+- Favicons: favicon-16.png, favicon-32.png, favicon-48.png
+- Apple Touch Icons: apple-touch-icon-152.png, apple-touch-icon-167.png, apple-touch-icon-180.png
+`;
+      zip.file("README.txt", readmeContent);
+
+      // Generate and download the zip file
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(zipBlob);
+      link.download = "pwa-icons.zip";
+      link.click();
+
+      // Clean up the object URL
+      URL.revokeObjectURL(link.href);
+
+      toast.success("PWA icons package downloaded as ZIP!");
+    } catch (error) {
+      toast.error("Failed to create zip file");
+      console.error(error);
+    }
   };
 
   return (
